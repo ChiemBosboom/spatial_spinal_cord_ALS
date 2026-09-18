@@ -1,36 +1,43 @@
 # Visium HD Motor Neuron Spatial Pipeline
 
-An automated, reproducible Snakemake workflow for high-resolution (16 µm) spatial transcriptomic profiling of the human spinal cord in Amyotrophic Lateral Sclerosis (ALS).
+An automated Snakemake pipeline for 16 µm Visium HD spatial transcriptomic profiling of the human spinal cord in Amyotrophic Lateral Sclerosis (ALS).
 
 ---
 
-## Overview & Workflow Intentions
+## Overview
 
-This pipeline provides an end-to-end framework integrating single-nucleus reference deconvolution, geometric cell instance segmentation, niche compositional modeling, and spatial autoregressive differential expression.
+This pipeline integrates single-nucleus reference deconvolution, geometric neuron instance segmentation, and spatial autoregressive modeling across five core stages:
 
-The pipeline performs five core functions:
-* **Single-cell reference curation & signature learning:** Subsamples single-nucleus reference datasets and trains regression models in `cell2location` to establish cell-type-specific transcriptional signatures.
-* **Spatial deconvolution:** Deconvolves cell type abundances across 16 µm Visium HD bins using Bayesian negative binomial modeling.
-* **Motor neuron instance segmentation:** Identifies individual motor neuron somas using core probability thresholding, DBSCAN clustering, geodesic expansion (Dijkstra pathfinding), cholinergic marker gene validation (`CHAT`, `SLC5A7`), and grey matter restriction. It then models an exponential distance-decay density field ($0 \to 1$) to capture the surrounding perineuronal microenvironment.
-* **Niche compositional testing:** Aggregates and compares sample-level and condition-level cell type proportions within anatomically and mathematically defined spatial compartments.
-* **Spatial differential expression:** Fits generalized linear mixed models (GLMM) via `TESSERA` using Leroux conditional autoregressive (CAR) random effects to identify genes altered along continuous motor neuron proximity gradients or within defined niches while controlling for spatial autocorrelation.
+* **Reference Signature Learning:** Subsamples single-nucleus references and trains `cell2location` regression models.
+* **Spatial Deconvolution:** Infers cell type abundances across 16 µm Visium HD bins with `cell2location`.
+* **Motor Neuron Segmentation & Density Gradients:** Identifies motor neuron somas using core thresholding, DBSCAN clustering, Dijkstra geodesic expansion, cholinergic marker validation (`CHAT`, `SLC5A7`), and grey matter restriction. Models an exponential distance-decay density field ($0 \to 1$) around verified somas.
+* **Niche Compositional Testing:** Quantifies and compares cell type abundance across anatomical and spatial compartments.
+* **Spatial Differential Expression:** Fits spatial GLMMs with Leroux conditional autoregressive (CAR) random effects using `TESSERA` to identify gene alterations along proximity gradients or within discrete niches while removing spatial autocorrelation artifacts.
 
-### Pilot Study & Repository Context
-
-This repository includes the `FINAL/` directory produced by a pilot study of 4 spinal cord sections (**3 ALS, 1 CTRL**). To keep the repository lightweight and accessible, `FINAL/` retains all primary diagnostic, analytical, and quality-control figures generated across the workflow. A detailed biological interpretation and walkthrough of these pilot results is documented in the accompanying pilot report (`docs/pilot_study_report.md`).
-
-All results in the pilot study were generated using the **exact default parameters** presented in this guide and defined in `config.yaml`.
-
-### Scalability for Larger Cohorts
-
-A primary goal of implementing this workflow in **Snakemake** is reproducibility and seamless scalability. Analyzing 16 µm Visium HD grids requires substantial computational orchestration across Python (PyTorch/Pyro on GPUs) and R (Bioconductor/TESSERA across high-memory CPU nodes). By abstracting sample manifests, hardware resource allocation, and parameter matrices into `config.yaml`, this pipeline enables straightforward scaling from this 4-sample pilot to large, multi-donor clinical cohorts without manual code refactoring.
-
+### Pilot Study & Scalability
+* **Pilot Data:** This repository includes the `FINAL/` directory containing all output figures generated from a 4-sample pilot cohort (**3 ALS, 1 CTRL**). All results were produced using the default parameters documented below. An in-depth interpretation of these findings is available in `docs/pilot_study_report.md`.
+* **Future Cohorts:** The workflow is modularly containerized in Snakemake to allow immediate scaling to larger clinical cohorts simply by updating `config.yaml`.
 
 ---
 
-## AI Transparency Notice
+## Execution & Quickstart
 
-In the interest of scientific transparency, generative artificial intelligence (**Google Gemini**) was utilized as a development and code optimization assistant during the implementation of this Snakemake workflow and its underlying Python and R scripts. All algorithmic logic, statistical formulas, model hyperparameters, and bioinformatic outputs have been manually audited, calibrated, and verified by the authors.
+```bash
+# Dry-run
+snakemake -n
+
+# Run locally with conda
+snakemake --use-conda --cores 32
+
+# Submit via SLURM profile
+snakemake --profile slurm
+```
+
+---
+
+## Transparency Notice
+
+Generative artificial intelligence (**Google Gemini**) was used as an assistant to write, refactor, and optimize the Python, R, and Snakemake scripts in this repository. All statistical models, mathematical formulas, and analytical outputs were manually audited, calibrated, and validated by the authors.
 
 ---
 
@@ -248,6 +255,3 @@ tessera_analyses:
 | `plots/moran_qc.png` | PNG Plot | Boxplot of Moran's I before and after model fitting to confirm removal of spatial autocorrelation. |
 | `plots/gradient_profiles/gradient_profile_{contrast}.png` | PNG Plot | *(Gradient analyses)* 10-bin mean $\pm$ SE normalized expression curves across the density gradient for top hits. |
 | `plots/heatmap/heatmap_{contrast}.png` | PNG Plot | *(Niche analyses)* Sample-by-compartment balanced Z-score expression heatmap for top significant genes. |
-
----
-
