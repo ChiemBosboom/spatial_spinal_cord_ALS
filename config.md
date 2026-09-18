@@ -1,15 +1,19 @@
-# Pipeline Configuration & Outputs Guide (`config.yaml`)
+# Visium HD Motor Neuron Spatial Pipeline
+
+An automated, reproducible Snakemake workflow for high-resolution (16 µm) spatial transcriptomic profiling of the human spinal cord in Amyotrophic Lateral Sclerosis (ALS).
+
+---
 
 ## Overview & Workflow Intentions
 
-The **Visium HD Motor Neuron Spatial Pipeline** is an automated, end-to-end framework developed for high-resolution (16 µm) spatial transcriptomic investigation of the human spinal cord in Amyotrophic Lateral Sclerosis (ALS). 
+This pipeline provides an end-to-end framework integrating single-nucleus reference deconvolution, geometric cell instance segmentation, niche compositional modeling, and spatial autoregressive differential expression.
 
 The pipeline performs five core functions:
-1. **Single-cell reference curation & signature learning:** Subsamples single-nucleus reference datasets and trains regression models in `cell2location` to establish cell-type-specific transcriptional signatures.
-2. **Spatial deconvolution:** Deconvolves cell type abundances across 16 µm Visium HD bins using Bayesian negative binomial modeling.
-3. **Motor neuron instance segmentation:** Identifies individual motor neuron somas using core thresholding, DBSCAN clustering, geodesic expansion (Dijkstra pathfinding), cholinergic marker gene validation (`CHAT`, `SLC5A7`), and grey matter restriction. It then models an exponential distance-decay density field ($0 \to 1$) to capture the surrounding perineuronal microenvironment.
-4. **Niche compositional testing:** Aggregates and compares sample-level and condition-level cell type proportions within anatomically and mathematically defined spatial compartments.
-5. **Spatial differential expression:** Fits generalized linear mixed models (GLMM) via `TESSERA` using Leroux conditional autoregressive (CAR) random effects to identify genes altered along continuous motor neuron proximity gradients or within defined niches while controlling for spatial autocorrelation.
+* **Single-cell reference curation & signature learning:** Subsamples single-nucleus reference datasets and trains regression models in `cell2location` to establish cell-type-specific transcriptional signatures.
+* **Spatial deconvolution:** Deconvolves cell type abundances across 16 µm Visium HD bins using Bayesian negative binomial modeling.
+* **Motor neuron instance segmentation:** Identifies individual motor neuron somas using core probability thresholding, DBSCAN clustering, geodesic expansion (Dijkstra pathfinding), cholinergic marker gene validation (`CHAT`, `SLC5A7`), and grey matter restriction. It then models an exponential distance-decay density field ($0 \to 1$) to capture the surrounding perineuronal microenvironment.
+* **Niche compositional testing:** Aggregates and compares sample-level and condition-level cell type proportions within anatomically and mathematically defined spatial compartments.
+* **Spatial differential expression:** Fits generalized linear mixed models (GLMM) via `TESSERA` using Leroux conditional autoregressive (CAR) random effects to identify genes altered along continuous motor neuron proximity gradients or within defined niches while controlling for spatial autocorrelation.
 
 ### Pilot Study & Repository Context
 
@@ -20,6 +24,13 @@ All results in the pilot study were generated using the **exact default paramete
 ### Scalability for Larger Cohorts
 
 A primary goal of implementing this workflow in **Snakemake** is reproducibility and seamless scalability. Analyzing 16 µm Visium HD grids requires substantial computational orchestration across Python (PyTorch/Pyro on GPUs) and R (Bioconductor/TESSERA across high-memory CPU nodes). By abstracting sample manifests, hardware resource allocation, and parameter matrices into `config.yaml`, this pipeline enables straightforward scaling from this 4-sample pilot to large, multi-donor clinical cohorts without manual code refactoring.
+
+
+---
+
+## AI Transparency Notice
+
+In the interest of scientific transparency, generative artificial intelligence (**Google Gemini**) was utilized as a development and code optimization assistant during the implementation of this Snakemake workflow and its underlying Python and R scripts. All algorithmic logic, statistical formulas, model hyperparameters, and bioinformatic outputs have been manually audited, calibrated, and verified by the authors.
 
 ---
 
@@ -237,3 +248,6 @@ tessera_analyses:
 | `plots/moran_qc.png` | PNG Plot | Boxplot of Moran's I before and after model fitting to confirm removal of spatial autocorrelation. |
 | `plots/gradient_profiles/gradient_profile_{contrast}.png` | PNG Plot | *(Gradient analyses)* 10-bin mean $\pm$ SE normalized expression curves across the density gradient for top hits. |
 | `plots/heatmap/heatmap_{contrast}.png` | PNG Plot | *(Niche analyses)* Sample-by-compartment balanced Z-score expression heatmap for top significant genes. |
+
+---
+
