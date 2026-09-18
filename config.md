@@ -1,220 +1,72 @@
-# Pipeline Configuration Guide (`config.yaml`)
+Pipeline Configuration Guide (config.yaml)
 
-This document provides a detailed reference for all configuration parameters used in the Visium HD Motor Neuron Spatial Pipeline. The configuration file governs the entire execution flow—from single-nucleus reference sub-sampling and GPU-accelerated deconvolution to geometric neuron segmentation and spatial differential expression via TESSERA.
+This guide details all configuration options for the Visium HD Motor Neuron
+Spatial Pipeline. Parameters are organized to mirror the workflow execution and
+output stages.
 
----
+1. Global & Input Settings
 
-## Quick Navigation
-1. [Global Storage & Input Datasets](#1-global-storage--input-datasets)
-2. [Stage 01: Single-Cell Reference Prep & Model Training](#2-stage-01-single-cell-reference-prep--model-training)
-3. [Stage 02: Visium HD Spatial Deconvolution (cell2location)](#3-stage-02-visium-hd-spatial-deconvolution-cell2location)
-4. [Stage 03: Motor Neuron Segmentation & Halo Gradients](#4-stage-03-motor-neuron-segmentation--halo-gradients)
-5. [Stage 04: Cell Type Abundance Comparisons](#5-stage-04-cell-type-abundance-comparisons)
-6. [Stage 05: Spatial Differential Expression (TESSERA)](#6-stage-05-spatial-differential-expression-tessera)
-7. [Parameter Summary Matrix](#7-parameter-summary-matrix)
+| Parameter        | Type     | Default   | Rationale & Guidance                                                                                                                             |
+| :--------------- | :------- | :-------- | :----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `output_dir`     | `string` | `"FINAL"` | Directory where all rule outputs, intermediate files, models, and plots are stored.                                                              |
+| `seurat_rds`     | `string` | `None`    | Path to single-nucleus/single-cell Seurat RDS object containing raw UMI counts and cell type labels.                                             |
+| `gm_table_path`  | `string` | `None`    | Path to a CSV table mapping sample IDs and barcodes belonging to spinal cord grey matter.                                                        |
+| `visium_samples` | `map`    | `None`    | Dictionary of Visium HD samples. Each entry specifies the Space Ranger `path` (to `square_016um/`) and sample `condition` (e.g., `ALS`, `CTRL`). |
 
----
+2. Stage 01: Single-Cell Reference Prep & Model Training
 
-## 1. Global Storage & Input Datasets
+Prepares reference signatures and fits the negative binomial regression model
+(cell2location.models.RegressionModel).
 
-```yaml
-output_dir: "FINAL"
-seurat_rds: "/path/to/SpinalCord_SingleNucleus_v2.rds"
-gm_table_path: "/path/to/Barcodes_GreyMatter.csv"
+| Parameter                 | Type               | Default                    | Rationale & Guidance                                                                                        |
+| :------------------------ | :----------------- | :------------------------- | :---------------------------------------------------------------------------------------------------------- |
+| `celltype_column`         | `string`           | `"motor_neuron_predicted"` | Column in Seurat metadata containing cell type annotations.                                                 |
+| `group_column`            | `string` \| `null` | `"disease_family"`         | Metadata column used for balanced subsampling across groups/cohorts. Set to `null` to disable.              |
+| `sample_column`           | `string`           | `"orig.ident"`             | Metadata column denoting biological library/batch to model technical batch variation.                       |
+| `max_cells_per_celltype`  | `integer`          | `2000`                     | Maximum cells sampled per cell type to prevent abundant types from biasing the model or exhausting GPU RAM. |
+| `cell_count_cutoff`       | `integer`          | `5`                        | Minimum total counts required across cells for a gene to be retained.                                       |
+| `cell_percentage_cutoff2` | `float`            | `0.05`                     | Minimum detection rate (5% of cells) in at least one cluster. Retains cluster-specific markers.             |
+| `nonz_mean_cutoff`        | `float`            | `1.2`                      | Minimum average expression of a gene within non-zero expressing cells.                                      |
+| `max_epochs`              | `integer`          | `700`                      | Total training epochs for the reference regression model.                                                   |
+| `batch_size`              | `integer`          | `16000`                    | Mini-batch size for GPU training. Reduce to `4096` or `2048` if training on smaller GPUs (\<40GB VRAM).     |
 
-visium_samples:
-  UMC-CD-x030-s:
-    path: "/path/to/spaceranger/outs/binned_outputs/square_016um/"
-    condition: "ALS"
-```
+3. Stage 02: Spatial Deconvolution (cell2location)
 
-### `output_dir`
-* **Type:** `string` (Path)
-* **Description:** Base directory where all rule outputs, intermediate files, trained PyTorch/Pyro models, tables, and visualization galleries will be written.
-* **Best Practice:** Use a project-specific identifier or semantic version tag (e.g., `results_v1_16um`). Avoid running multiple concurrent Snakemake instances pointing to the same `output_dir`.
+Maps reference cell signatures onto 16 µm Visium HD bins
+(cell2location.models.Cell2location).
 
-### `seurat_rds`
-* **Type:** `string` (Filepath)
-* **Description:** Path to an annotated Seurat object (`.rds`) containing single-nucleus or single-cell RNA-seq reference data.
-* **Requirements:**
-  * Must contain raw counts (un-normalized integer UMI matrix) in `obj[["RNA"]]$counts` (Seurat v5) or `obj@assays$RNA@counts` (Seurat v3/v4).
-  * Cell type annotations and batch metadata must be present in `meta.data`.
+| Parameter              | Type      | Default | Rationale & Guidance                                                                                         |
+| :--------------------- | :-------- | :------ | :----------------------------------------------------------------------------------------------------------- |
+| `umi_min`              | `integer` | `50`    | Minimum total UMI count per 16 µm bin. Filters out empty glass and damaged tissue.                           |
+| `gene_min`             | `integer` | `25`    | Minimum unique genes detected per bin.                                                                       |
+| `max_epochs_spatial`   | `integer` | `500`   | Training iterations for spatial mapping. Check convergence via training history plots.                       |
+| `batch_size_spatial`   | `integer` | `16000` | Mini-batch size for spatial optimization. Reduce if encountering CUDA OOM errors.                            |
+| `N_cells_per_location` | `integer` | `1`     | Prior mean for the number of cells expected per bin. For 16 µm Visium HD bins, \~1 cell per bin is expected. |
+| `detection_alpha`      | `float`   | `20`    | Regularization hyperparameter for spot-to-spot technical sensitivity differences.                            |
 
-### `gm_table_path`
-* **Type:** `string` (Filepath)
-* **Description:** CSV table containing spot-level anatomical classifications (identifying spots within the spinal cord grey matter).
-* **Format:** Must contain at least two columns:
-  * `sample_id`: Matches keys in `visium_samples`.
-  * `Barcode`: Visium HD spot coordinate barcode (e.g., `s_016um_00120_00045-1`).
-* **Biological Context:** Ventral horn motor neurons reside exclusively in the grey matter. Applying this mask eliminates edge artifacts in the white matter tracts and prevents spurious segmentation calls.
+4. Stage 03: Motor Neuron Segmentation & Halo Gradients
 
-### `visium_samples`
-* **Type:** `mapping` (Key-Value Dictionary)
-* **Description:** Dictionary defining all Visium HD capture areas to process.
-  * **Key:** Unique sample identifier (e.g., `UMC-CD-x030-s`).
-  * `path`: Absolute path to the Space Ranger binned output directory containing:
-    * `filtered_feature_bc_matrix.h5`
-    * `spatial/tissue_positions.parquet`
-    * `spatial/scalefactors_json.json`
-    * `spatial/tissue_hires_image.png`
-  * `condition`: Experimental cohort label (e.g., `ALS`, `CTRL`). Used by statistical rules to construct design matrices and linear contrasts.
+Identifies motor neuron somas using core thresholding, DBSCAN, geodesic
+expansion, marker gene confirmation, and spatial halo decay.
 
----
+| Parameter                | Type      | Default              | Rationale & Guidance                                                                                                   |
+| :----------------------- | :-------- | :------------------- | :--------------------------------------------------------------------------------------------------------------------- |
+| `target_col`             | `string`  | `"Motor Neurons"`    | Factor name from cell2location deconvolution representing the target cell type.                                        |
+| `bin_size_um`            | `float`   | `16.0`               | Physical width of one Visium HD bin in micrometers.                                                                    |
+| `core_prob_threshold`    | `float`   | `0.5`                | Minimum deconvolution probability required to consider a bin as part of a neuron core.                                 |
+| `min_core_bins`          | `integer` | `5`                  | Minimum contiguous bins passing `core_prob_threshold` required to seed a candidate neuron soma.                        |
+| `relaxed_prob_threshold` | `float`   | `0.25`               | Lower probability boundary for soma expansion from the core.                                                           |
+| `max_expansion_um`       | `float`   | `25.0`               | Maximum physical radius (in µm) to expand outward from the core via Dijkstra pathfinding.                              |
+| `marker_genes`           | `list`    | `["CHAT", "SLC5A7"]` | Canonical marker genes required to validate candidate segmented neurons.                                               |
+| `min_marker_counts`      | `integer` | `1`                  | Minimum combined raw UMIs of marker genes required across the candidate soma to confirm it.                            |
+| `require_grey_matter`    | `boolean` | `true`               | When `true`, discards candidate neurons falling outside grey matter to eliminate edge artifacts.                       |
+| `decay_um`               | `float`   | `100.0`              | Distance decay rate ($\lambda$) used in the exponential halo formula: $\text{density} = \exp(-\text{dist} / \lambda)$. |
 
-## 2. Stage 01: Single-Cell Reference Prep & Model Training
+5. Stage 04: Cell Type Abundance Comparisons
 
-This stage balances single-nucleus reference cell types and trains a Negative Binomial regression model (`cell2location.models.RegressionModel`) to infer cluster-specific expression signatures ($\mu_{g,c}$).
+Defines sub-regions or niches where cell type proportions are aggregated and
+compared between conditions.
 
-```yaml
-celltype_column: "motor_neuron_predicted"
-group_column: "disease_family"
-sample_column: "orig.ident"
-max_cells_per_celltype: 2000
-
-cell_count_cutoff: 5
-cell_percentage_cutoff2: 0.05
-nonz_mean_cutoff: 1.2
-
-max_epochs: 700
-batch_size: 16000
-```
-
-### Reference Subsampling
-
-| Parameter | Type | Default | Rationale & Guidance |
-| :--- | :--- | :--- | :--- |
-| `celltype_column` | `string` | `"motor_neuron_predicted"` | Column in `seurat_rds@meta.data` containing cell type classifications. Must accurately identify the target motor neuron population. |
-| `group_column` | `string` \| `null` | `"disease_family"` | Metadata column used for balanced stratified subsampling across biological batches or donor cohorts. Set to `null` to disable cohort balancing. |
-| `sample_column` | `string` | `"orig.ident"` | Metadata column denoting biological library/batch. Cell2location uses this to model technical batch effects ($\epsilon_{g,e}$). |
-| `max_cells_per_celltype` | `integer` | `2000` | Upper limit of cells to sample per cell type. Ensures abundant populations (e.g., oligodendrocytes) do not dominate GPU memory or bias regression fitting over rare populations (e.g., motor neurons). |
-
-### Reference Gene Filtering
-
-Cell2location infers average gene expression per cluster. Including unexpressed or ultra-sparse genes introduces stochastic noise into deconvolution.
-
-* **`cell_count_cutoff` (`integer`, default: `5`):** Minimum raw count a gene must have across all cells to be considered detected.
-* **`cell_percentage_cutoff2` (`float`, default: `0.05`):** Gene must be expressed in at least this proportion of cells (5%) in **at least one** cell type cluster. Retains cluster-specific markers while purging non-specific background noise.
-* **`nonz_mean_cutoff` (`float`, default: `1.2`):** Minimum average count among non-zero cells. Prevents genes with solitary, low-confidence counts from inflating signature matrices.
-
-### Model Training Parameters
-
-* **`max_epochs` (`integer`, default: `700`):** Total training iterations. Convergence should be confirmed via the generated `training_history.png` (ELBO plateau).
-* **`batch_size` (`integer`, default: `16000`):** Number of cells per mini-batch. Scaled for high-memory GPUs (e.g., NVIDIA A100 80GB). Decrease to `4096` or `2048` if training on 16GB–24GB GPUs (V100/RTX 3090).
-
----
-
-## 3. Stage 02: Visium HD Spatial Deconvolution (cell2location)
-
-This stage fits cell type abundance per bin ($w_{s,c}$) on 16 µm Visium HD grids using `cell2location.models.Cell2location`.
-
-```yaml
-umi_min: 50
-gene_min: 25
-
-max_epochs_spatial: 500
-batch_size_spatial: 16000
-N_cells_per_location: 1
-detection_alpha: 20
-```
-
-### Spot QC Thresholds
-
-| Parameter | Type | Default | Rationale & Guidance |
-| :--- | :--- | :--- | :--- |
-| `umi_min` | `integer` | `50` | Minimum UMI counts for a 16 µm bin to be included in deconvolution. Visium HD bins have significantly lower counts than legacy 55 µm Visium spots. |
-| `gene_min` | `integer` | `25` | Minimum unique genes detected per bin. Eliminates bins falling on acellular tissue tears or empty glass. |
-
-> [!TIP]
-> If transitioning from **16 µm** to **8 µm** bins, decrease `umi_min` to ~`15–20` and `gene_min` to ~`10–15` to avoid dropping true cellular bins. For **2 µm** bins, specialized subcellular pipelines should be considered.
-
-### Spatial Hyperparameters
-
-* **`N_cells_per_location` (`integer`, default: `1`):**
-  * **Mathematical Meaning:** Sets the prior mean for the total number of cells expected per spatial location ($m_s \sim \text{Gamma}(N, \dots)$).
-  * **Visium HD Context:** In standard 55 µm Visium, this is typically set to `10–30`. Because a 16 µm bin approximates the cross-sectional footprint of a single eukaryotic cell body, `N_cells_per_location: 1` is mathematically and biologically appropriate.
-* **`detection_alpha` (`float`, default: `20`):**
-  * **Mathematical Meaning:** Regularization hyperparameter governing the variance of spot-specific sensitivity effects ($y_s$).
-  * **Guidance:** A value of `20` assumes moderate technical efficiency variation across bins without allowing sensitivity differences to absorb true biological abundance shifts.
-* **`max_epochs_spatial` (`integer`, default: `500`):** Training epochs for spatial mapping. Check `spatial_training_history.png` to ensure the ELBO has stabilized.
-* **`batch_size_spatial` (`integer`, default: `16000`):** Spatial spots processed per optimization step. Reduce if encountering CUDA Out-of-Memory (OOM) errors.
-
----
-
-## 4. Stage 03: Motor Neuron Segmentation & Halo Gradients
-
-This stage segments individual motor neuron somas from continuous deconvolution probabilities and builds a spatial microenvironment density field.
-
-```yaml
-target_col: "Motor Neurons"
-bin_size_um: 16.0
-core_prob_threshold: 0.5
-min_core_bins: 5
-relaxed_prob_threshold: 0.25
-max_expansion_um: 25.0
-marker_genes:
-  - "CHAT"
-  - "SLC5A7"
-min_marker_counts: 1
-require_grey_matter: true
-decay_um: 100.0
-```
-
-### Segmentation Algorithm Architecture
-
-```
-[Cell2location Abundance]
-         │
-         ▼
-[Core Seeding] ────────► Score >= core_prob_threshold (0.5)
-         │               DBSCAN clustering (eps = 1.5 bins, min_bins = 5)
-         ▼
-[Soma Expansion] ──────► Score >= relaxed_prob_threshold (0.25)
-         │               Dijkstra geodesic expansion (dist <= max_expansion_um)
-         ▼
-[Dual Verification] ───► Total CHAT/SLC5A7 counts >= min_marker_counts (1)
-         │               Inside Grey Matter mask (require_grey_matter = true)
-         ▼
-[Halo Density Field] ──► Exponential distance decay to nearest neuron:
-                         exp(-distance_um / decay_um)
-```
-
-### Parameter Details
-
-#### `target_col`
-* **Type:** `string`
-* **Description:** Cell type factor name produced by cell2location (derived from the reference AnnData). Must match a column in `q05_cell_abundance_w_sf`.
-
-#### `core_prob_threshold` & `min_core_bins`
-* **Defaults:** `0.5`, `5`
-* **Rationale:** A candidate motor neuron seed must contain at least `5` contiguous bins each exhibiting a 5th-percentile abundance score $\ge 0.5$. Spinal motor neurons are among the largest cells in the mammalian nervous system ($40–80\ \mu\text{m}$ diameter), so a true soma inevitably covers multiple 16 µm bins.
-
-#### `relaxed_prob_threshold` & `max_expansion_um`
-* **Defaults:** `0.25`, `25.0`
-* **Rationale:** Motor neuron boundaries taper outward, reducing peripheral deconvolution scores. Starting from confirmed core bins, Dijkstra’s shortest path algorithm traverses adjacent bins with abundance $\ge 0.25$ up to a Euclidean geodesic distance of $25\ \mu\text{m}$ from the core centroid.
-
-#### `marker_genes` & `min_marker_counts`
-* **Defaults:** `["CHAT", "SLC5A7"]`, `1`
-* **Rationale:** Deconvolution models can occasionally produce false-positive motor neuron calls in high-density interneuron fields. To ensure fidelity, segmented candidate somas must express at least `1` raw UMI of definitive cholinergic machinery (*Choline Acetyltransferase* or the high-affinity choline transporter *SLC5A7*).
-
-#### `require_grey_matter`
-* **Type:** `boolean` (`true` / `false`)
-* **Description:** Enforces that segmented soma bins reside within annotated grey matter boundaries. Removes edge-effect deconvolution false positives in the lateral or ventral white matter columns.
-
-#### `decay_um`
-* **Type:** `float` (Microns)
-* **Default:** `100.0`
-* **Mathematical Definition:**
-  $$\text{motor\_neuron\_density}_s = \exp\left(-\frac{\text{dist}(s, \mathcal{MN})}{\text{decay\_um}}\right)$$
-  where $\text{dist}(s, \mathcal{MN})$ is the physical Euclidean distance (in $\mu\text{m}$) from bin $s$ to the boundary of the nearest verified motor neuron soma.
-* **Biological Context:** At $100\ \mu\text{m}$, density equals $e^{-1} \approx 0.368$; at $200\ \mu\text{m}$, it drops to $e^{-2} \approx 0.135$. This models paracrine signaling, neuroinflammatory gradients, and glial activation surrounding degenerating motor neurons.
-
----
-
-## 5. Stage 04: Cell Type Abundance Comparisons
-
-This stage computes sample-level and condition-level compositional proportions across defined tissue compartments using `scripts/compare_cells.R`.
-
-```yaml
 bin_comparisons:
   is_grey_matter:
     label: "Grey Matter"
@@ -222,40 +74,38 @@ bin_comparisons:
   motor_neuron_density:
     label: "MN Microenvironment"
     filter: "motor_neuron_density > 0.25"
-```
 
-### Defining Compartment Comparisons
-Each entry in `bin_comparisons` generates a dedicated set of abundance strip-plots, stacked bar charts, and summary statistics:
-* **Key:** Machine-readable identifier for the comparison (used in file naming).
-* `label`: Clean string displayed on publication plot headers.
-* `filter`: A valid R/`dplyr` logical expression evaluated against spot metadata (`adata_vis.obs`).
+Explanation & Fields
 
-### Example Filters
-```yaml
-# Broad grey matter background
-filter: "is_grey_matter"
+  - Key (e.g., is_grey_matter, motor_neuron_density): Unique internal identifier
+    for the comparison, used in output file names (e.g.,
+    stats_is_grey_matter.csv).
+  - label (string): Clean descriptive title displayed on the generated stacked
+    bar charts and strip plots.
+  - filter (string): A valid R logical expression evaluated on the spot metadata
+    columns:
+      - "is_grey_matter": Evaluates all bins within the anatomically defined
+        grey matter.
+      - "motor_neuron_density > 0.25": Restricts analysis to the immediate
+        perineuronal microenvironment (~140 µm radius around motor neurons).
 
-# Immediate perineuronal microenvironment (~140 um halo)
-filter: "motor_neuron_density > 0.25"
+6. Stage 05: Spatial Differential Expression (TESSERA)
 
-# Intimate contact soma/juxtaneuronal zone
-filter: "is_neuron_expanded == TRUE"
+Fits spatial generalized linear mixed models (GLMM) with a Leroux CAR random
+effect to account for spatial autocorrelation across spots.
 
-# Distal grey matter controls (far from any motor neuron)
-filter: "is_grey_matter & motor_neuron_density < 0.05"
-```
+Global Parameters
 
----
+| Parameter                      | Type    | Default | Rationale & Guidance                                                                                   |
+| :----------------------------- | :------ | :------ | :----------------------------------------------------------------------------------------------------- |
+| `tessera_d_thresh`             | `float` | `23.0`  | Maximum pixel distance defining 1st-order orthogonal and diagonal spatial neighbors on the 16 µm grid. |
+| `tessera_min_pct_spots`        | `float` | `0.01`  | Minimum fraction of spots expressing a gene (1%) to include it in TESSERA model fitting.               |
+| `tessera_min_nonz_mean_counts` | `float` | `1.1`   | Minimum average count in non-zero expressing spots. Removes sparse low-count genes.                    |
+| `tessera_fdr_threshold`        | `float` | `0.05`  | FDR threshold for reporting statistically significant differentially expressed genes.                  |
 
-## 6. Stage 05: Spatial Differential Expression (TESSERA)
+Analysis Configurations (tessera_analyses)
 
-TESSERA fits a generalized linear mixed model (GLMM) with a Leroux conditional autoregressive (CAR) random effect to account for spatial autocorrelation across spots while testing disease covariates.
-
-```yaml
-tessera_d_thresh: 23.0
-tessera_min_pct_spots: 0.01
-tessera_min_nonz_mean_counts: 1.1
-tessera_fdr_threshold: 0.05
+Defines specific statistical models, spatial subsets, and hypothesis tests.
 
 tessera_analyses:
   mn_gradient:
@@ -273,57 +123,25 @@ tessera_analyses:
     design_formula: "~ 0 + condition"
     contrasts:
       ALS_vs_CTRL: "conditionALS - conditionCTRL"
-```
 
-### Global TESSERA Parameters
+Explanation & Fields
 
-* **`tessera_d_thresh` (`float`, default: `23.0`):**
-  * **Mathematical Meaning:** Maximum Euclidean distance (in image full-resolution pixel space) connecting two bins as spatial neighbors in the adjacency graph $W$.
-  * **Calibration:** In Visium HD 16 µm grids, bin centers are regularized. A threshold of `23.0` connects immediate orthogonal and diagonal neighbors (first-order spatial lag) without creating an overly dense adjacency graph.
-* **`tessera_min_pct_spots` (`float`, default: `0.01`):** Minimum detection fraction (1% of analyzed spots). Genes expressed in fewer spots are dropped to prevent GLMM non-convergence.
-* **`tessera_min_nonz_mean_counts` (`float`, default: `1.1`):** Average raw count within spots expressing the gene ($>0$). Eliminates ultra-low expression genes characterized by single UMIs.
-* **`tessera_fdr_threshold` (`float`, default: `0.05`):** Significance threshold applied to empirical null-adjusted $p$-values.
-
-### Statistical Models & Linear Contrasts
-
-The `tessera_analyses` block defines modular differential expression runs.
-
-#### Analysis 1: `mn_gradient` (Continuous Slope Test)
-* **Goal:** Test whether the rate of gene expression change as a function of distance to motor neurons differs between ALS and CTRL.
-* **Filter:** `motor_neuron_density > 0.01 & motor_neuron_density < 1` (excludes the soma core itself and distal tissue).
-* **Design Formula:** `~ 0 + condition + condition:motor_neuron_density`
-  * `conditionALS` and `conditionCTRL`: Condition-specific intercepts.
-  * `conditionALS:motor_neuron_density`: Slope of expression with respect to motor neuron density in ALS.
-  * `conditionCTRL:motor_neuron_density`: Slope of expression with respect to motor neuron density in CTRL.
-* **Contrast `slope_ALS_vs_CTRL`:**
-  $$\beta_{\text{ALS:density}} - \beta_{\text{CTRL:density}} = 0$$
-  Identifies genes whose spatial proximity gradients are significantly steepened or flattened in ALS.
-
-#### Analysis 2: `mn_microenvironment` (Discrete Niche Test)
-* **Goal:** Test differential expression exclusively within the perineuronal niche.
-* **Filter:** `motor_neuron_density > 0.25` (bins within $\sim 140\ \mu\text{m}$ of a motor neuron).
-* **Design Formula:** `~ 0 + condition`
-* **Contrast `ALS_vs_CTRL`:**
-  $$\beta_{\text{ALS}} - \beta_{\text{CTRL}} = 0$$
-  Calculates standard log2 fold change within the immediate microenvironment while controlling for spatial autocorrelation.
-
----
-
-## 7. Parameter Summary Matrix
-
-| Parameter | Recommended Default | Safe Range | Primary Impact |
-| :--- | :--- | :--- | :--- |
-| `max_cells_per_celltype` | `2000` | `500 – 5000` | Reference balance and GPU training duration |
-| `cell_count_cutoff` | `5` | `1 – 20` | Reference gene sparsity filter |
-| `nonz_mean_cutoff` | `1.2` | `1.05 – 1.5` | Removes low-count gene noise from signatures |
-| `umi_min` (16 µm) | `50` | `25 – 100` | Visium HD spot quality control |
-| `gene_min` (16 µm) | `25` | `15 – 50` | Visium HD spot quality control |
-| `N_cells_per_location` | `1` | `1 – 2` | Cell2location prior for 16 µm bins |
-| `detection_alpha` | `20` | `10 – 100` | Spot sensitivity regularization |
-| `core_prob_threshold` | `0.5` | `0.3 – 0.7` | Stringency of motor neuron soma seeds |
-| `min_core_bins` | `5` | `3 – 10` | Minimum physical footprint of a neuron core |
-| `max_expansion_um` | `25.0` | `10.0 – 40.0` | Maximum radius of soma expansion |
-| `decay_um` | `100.0` | `50.0 – 250.0` | Spatial extent of the perineuronal density field |
-| `tessera_d_thresh` | `23.0` | `18.0 – 30.0` | Spatial graph neighborhood connectivity |
-| `tessera_min_pct_spots`| `0.01` | `0.005 – 0.05` | Filter for stable GLMM convergence |
-| `tessera_fdr_threshold`| `0.05` | `0.01 – 0.10` | False discovery rate cutoff |
+  - label (string): Descriptive name for plot titles and summary reports.
+  - filter (string): Logical expression defining the spot population to test:
+      - Gradient example: Restricts testing to spots along the halo gradient
+        (> 0.01 and < 1), excluding the soma core itself.
+      - Niche example: Isolates spots in close proximity to motor neurons
+        (> 0.25).
+  - design_formula (string): R formula specifying the fixed effects:
+      - ~ 0 + condition + condition:motor_neuron_density: Fits
+        condition-specific baseline intercepts and condition-specific
+        interaction slopes along the continuous density gradient.
+      - ~ 0 + condition: Standard two-group comparison across all filtered
+        spots.
+  - contrasts (map): Linear combinations of fitted model coefficients to test:
+      - slope_ALS_vs_CTRL: Tests whether the spatial distance-decay slope
+        differs between ALS and CTRL.
+      - slope_ALS / slope_CTRL: Tests if individual slopes are significantly
+        non-zero.
+      - ALS_vs_CTRL: Tests standard differential expression between ALS and CTRL
+        within the filtered niche.
