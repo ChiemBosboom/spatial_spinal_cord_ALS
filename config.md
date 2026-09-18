@@ -1,6 +1,6 @@
-# Pipeline Configuration Guide (`config.yaml`)
+# Pipeline Configuration & Outputs Guide (`config.yaml`)
 
-This guide details all configuration options for the Visium HD Motor Neuron Spatial Pipeline. Parameters are organized to mirror the workflow execution and output stages.
+This guide details all configuration parameters and generated outputs for the Visium HD Motor Neuron Spatial Pipeline, organized to mirror the workflow execution and output stages.
 
 ---
 
@@ -21,7 +21,7 @@ visium_samples:
 ```
 
 ### Explanation & Fields
-* **`output_dir` (`string`):** Base directory where all rule outputs, intermediate files, models, and figures are stored (e.g., `"FINAL"`).
+* **`output_dir` (`string`):** Base directory where all rule outputs, intermediate files, models, tables, and figures are stored (e.g., `"FINAL"`).
 * **`seurat_rds` (`string`):** Path to the single-nucleus or single-cell Seurat RDS object containing raw UMI counts and cell type labels.
 * **`gm_table_path` (`string`):** Path to a CSV table containing spot-level anatomical classifications. Must contain `sample_id` and `Barcode` columns mapping spots located within the spinal cord grey matter.
 * **`visium_samples` (`map`):** Dictionary specifying each Visium HD sample to process:
@@ -35,6 +35,8 @@ visium_samples:
 
 Prepares reference signatures and fits the negative binomial regression model (`cell2location.models.RegressionModel`).
 
+### Configuration Parameters
+
 | Parameter | Type | Default | Rationale & Guidance |
 | :--- | :--- | :--- | :--- |
 | `celltype_column` | `string` | `"motor_neuron_predicted"` | Column in Seurat metadata containing cell type annotations. |
@@ -47,11 +49,25 @@ Prepares reference signatures and fits the negative binomial regression model (`
 | `max_epochs` | `integer` | `700` | Total training epochs for the reference regression model. |
 | `batch_size` | `integer` | `16000` | Mini-batch size for GPU training. Reduce to `4096` or `2048` if training on smaller GPUs (<40GB VRAM). |
 
+### Stage Outputs (`01_reference/`)
+
+| Output Target | Format | Description |
+| :--- | :--- | :--- |
+| `tables/cell_counts_summary.csv` | CSV Table | Cell counts per cell type and disease family retained after stratified subsampling. |
+| `reference.h5ad` | AnnData H5AD | Downsampled reference AnnData containing exported posterior expression signatures. |
+| `models/reference_model/` | Directory | Saved PyTorch/Pyro weights and parameters for the trained cell2location regression model. |
+| `plots/filtering_summary.png` | PNG Plot | Diagnostic plot showing gene inclusion based on cell count, non-zero mean, and cluster percentage. |
+| `plots/training_history.png` | PNG Plot | ELBO loss convergence curve across reference training epochs. |
+| `plots/training_qc_reconstruction.png` | PNG Plot | QC scatter plot evaluating observed vs. model-reconstructed count distributions. |
+| `plots/training_qc_expression.png` | PNG Plot | QC scatter plot comparing inferred cluster expression signatures against empirical averages. |
+
 ---
 
 ## Stage 02: Spatial Deconvolution (cell2location)
 
 Maps reference cell signatures onto 16 µm Visium HD bins (`cell2location.models.Cell2location`).
+
+### Configuration Parameters
 
 | Parameter | Type | Default | Rationale & Guidance |
 | :--- | :--- | :--- | :--- |
@@ -62,11 +78,27 @@ Maps reference cell signatures onto 16 µm Visium HD bins (`cell2location.models
 | `N_cells_per_location` | `integer` | `1` | Prior mean for the number of cells expected per bin. For 16 µm Visium HD bins, ~1 cell per bin is expected. |
 | `detection_alpha` | `float` | `20` | Regularization hyperparameter for spot-to-spot technical sensitivity differences. |
 
+### Stage Outputs (`02_deconvolution/`)
+
+| Output Target | Format | Description |
+| :--- | :--- | :--- |
+| `spatial.h5ad` | AnnData H5AD | Combined spatial AnnData containing cell abundance estimates (q05, q50, q95) across all slides. |
+| `models/spatial_model/` | Directory | Saved model weights and parameters for the trained spatial cell2location model. |
+| `plots/combined_qc_umi.png` | PNG Plot | Histogram of log10 total UMIs across all bins with the cutoff threshold marked. |
+| `plots/combined_qc_genes.png` | PNG Plot | Histogram of log10 detected genes across all bins with the cutoff threshold marked. |
+| `plots/spatial_training_history.png` | PNG Plot | ELBO loss convergence curve during spatial model training. |
+| `plots/spatial_qc_reconstruction.png` | PNG Plot | QC plot evaluating spatial model reconstruction accuracy. |
+| `tables/cell_abundance_q05.csv` | CSV Table | 5th-percentile cell abundance estimates per bin for all reference cell types. |
+| `tables/spatial_summary_stats.csv` | CSV Table | Summary distribution statistics (mean, SD, median, purity) across spatial bins. |
+| `plots/celltypes/*_spatial_abundance.png` | PNG Directory | Multi-slide spatial abundance overlay maps generated individually for each cell type. |
+
 ---
 
 ## Stage 03: Motor Neuron Segmentation & Halo Gradients
 
 Identifies motor neuron somas using core thresholding, DBSCAN, geodesic expansion, marker gene confirmation, and spatial halo decay.
+
+### Configuration Parameters
 
 | Parameter | Type | Default | Rationale & Guidance |
 | :--- | :--- | :--- | :--- |
@@ -80,6 +112,14 @@ Identifies motor neuron somas using core thresholding, DBSCAN, geodesic expansio
 | `min_marker_counts` | `integer` | `1` | Minimum combined raw UMIs of marker genes required across the candidate soma to confirm it. |
 | `require_grey_matter` | `boolean` | `true` | When `true`, discards candidate neurons falling outside grey matter to eliminate edge artifacts. |
 | `decay_um` | `float` | `100.0` | Distance decay rate ($\lambda$) used in the exponential halo formula: $\text{density} = \exp(-\text{dist} / \lambda)$. |
+
+### Stage Outputs (`03_segmentation/`)
+
+| Output Target | Format | Description |
+| :--- | :--- | :--- |
+| `tables/motor_neuron_metadata_per_spot.csv` | CSV Table | Spot-level metadata with segmentation flags (`is_neuron_core`, `is_neuron_expanded`, `neuron_id`, `motor_neuron_density`, `is_grey_matter`). |
+| `plots/motor_neurons_{sample}_bins.png` | PNG Plot | Histology image showing all verified segmented motor neuron soma bins per sample. |
+| `plots/motor_neurons_{sample}_density.png` | PNG Plot | Continuous spatial gradient map illustrating the exponential decay density field ($0 \to 1$) per sample. |
 
 ---
 
@@ -103,6 +143,15 @@ bin_comparisons:
 * **`filter` (`string`):** A valid R logical expression evaluated on the spot metadata columns:
   * `"is_grey_matter"`: Evaluates all bins within the anatomically defined grey matter.
   * `"motor_neuron_density > 0.25"`: Restricts analysis to the immediate perineuronal microenvironment (~140 µm radius around motor neurons).
+
+### Stage Outputs (`04_cell_comparison/`)
+
+| Output Target | Format | Description |
+| :--- | :--- | :--- |
+| `plots/cell_abundance_stacked_barchart.png` | PNG Plot | Stacked bar chart showing condition-averaged cell type proportions across all comparisons. |
+| `plots/abundance_stripplots/abundance_*.png` | PNG Directory | Sample-level strip plots with condition mean overlays generated for each individual cell type. |
+| `tables/stats_{comparison}.csv` | CSV Table | Condition-level summary metrics (mean proportion, SD, Log2FC) for a specific comparison. |
+| `tables/stats_all_comparisons.csv` | CSV Table | Master summary table collating cell type abundance statistics across all configured comparisons. |
 
 ---
 
@@ -154,3 +203,18 @@ tessera_analyses:
   * `slope_ALS_vs_CTRL`: Tests whether the spatial distance-decay slope differs between ALS and CTRL.
   * `slope_ALS` / `slope_CTRL`: Tests if individual slopes are significantly non-zero.
   * `ALS_vs_CTRL`: Tests standard differential expression between ALS and CTRL within the filtered niche.
+
+### Stage Outputs (`05_gene_comparison/{analysis}/`)
+
+| Output Target | Format | Description |
+| :--- | :--- | :--- |
+| `objects/tessera_data.rds` | RDS Object | TESSERA data container containing spatial adjacency structures, design matrices, and count lists. |
+| `objects/tessera_fits.rds` | RDS Object | List of fitted TESSERA spatial GLMM models for all tested genes. |
+| `tables/performance_summary.csv` | CSV Table | Quality metrics (Moran's I autocorrelation of raw counts vs. fitted residuals) per gene and sample. |
+| `tables/de_results_all.csv` | CSV Table | Full Wald test statistics, estimates, standard errors, empirical null parameters, and FDR values for all genes. |
+| `tables/de_results_significant.csv` | CSV Table | Filtered table of statistically significant genes passing the FDR threshold (`padj < tessera_fdr_threshold`). |
+| `plots/volcano/volcano_{contrast}.png` | PNG Plot | Volcano plots displaying Log2FC vs. $-log_{10}(\text{adj.\ } P)$ with the top significant genes labeled. |
+| `plots/ma/ma_{contrast}.png` | PNG Plot | MA plots showing average expression vs. Log2FC for each evaluated contrast. |
+| `plots/moran_qc.png` | PNG Plot | Boxplot of Moran's I before and after model fitting to confirm removal of spatial autocorrelation. |
+| `plots/gradient_profiles/gradient_profile_{contrast}.png` | PNG Plot | *(Gradient analyses)* 10-bin mean $\pm$ SE normalized expression curves across the density gradient for top hits. |
+| `plots/heatmap/heatmap_{contrast}.png` | PNG Plot | *(Niche analyses)* Sample-by-compartment balanced Z-score expression heatmap for top significant genes. |
