@@ -4,18 +4,34 @@ This guide details all configuration options for the Visium HD Motor Neuron Spat
 
 ---
 
-## 1. Global & Input Settings
+## Global & Input Settings
 
-| Parameter | Type | Default | Rationale & Guidance |
-| :--- | :--- | :--- | :--- |
-| `output_dir` | `string` | `"FINAL"` | Directory where all rule outputs, intermediate files, models, and plots are stored. |
-| `seurat_rds` | `string` | `None` | Path to single-nucleus/single-cell Seurat RDS object containing raw UMI counts and cell type labels. |
-| `gm_table_path` | `string` | `None` | Path to a CSV table mapping sample IDs and barcodes belonging to spinal cord grey matter. |
-| `visium_samples` | `map` | `None` | Dictionary of Visium HD samples. Each entry specifies the Space Ranger `path` (to `square_016um/`) and sample `condition` (e.g., `ALS`, `CTRL`). |
+```yaml
+output_dir: "FINAL"
+seurat_rds: "/path/to/SpinalCord_SingleNucleus_v2.rds"
+gm_table_path: "/path/to/Barcodes_GreyMatter.csv"
+
+visium_samples:
+  UMC-CD-x030-s:
+    path: "/path/to/spaceranger/outs/binned_outputs/square_016um/"
+    condition: "ALS"
+  UMC-CD-x033-s:
+    path: "/path/to/spaceranger/outs/binned_outputs/square_016um/"
+    condition: "CTRL"
+```
+
+### Explanation & Fields
+* **`output_dir` (`string`):** Base directory where all rule outputs, intermediate files, models, and figures are stored (e.g., `"FINAL"`).
+* **`seurat_rds` (`string`):** Path to the single-nucleus or single-cell Seurat RDS object containing raw UMI counts and cell type labels.
+* **`gm_table_path` (`string`):** Path to a CSV table containing spot-level anatomical classifications. Must contain `sample_id` and `Barcode` columns mapping spots located within the spinal cord grey matter.
+* **`visium_samples` (`map`):** Dictionary specifying each Visium HD sample to process:
+  * **Sample Key (e.g., `UMC-CD-x030-s`):** Unique identifier used in sample-level file naming.
+  * **`path` (`string`):** Directory path to the Space Ranger binned output containing `square_016um/` files (`filtered_feature_bc_matrix.h5`, `tissue_positions.parquet`, etc.).
+  * **`condition` (`string`):** Biological cohort or group label (e.g., `ALS`, `CTRL`) used to construct design matrices and contrasts.
 
 ---
 
-## 2. Stage 01: Single-Cell Reference Prep & Model Training
+## Stage 01: Single-Cell Reference Prep & Model Training
 
 Prepares reference signatures and fits the negative binomial regression model (`cell2location.models.RegressionModel`).
 
@@ -33,7 +49,7 @@ Prepares reference signatures and fits the negative binomial regression model (`
 
 ---
 
-## 3. Stage 02: Spatial Deconvolution (cell2location)
+## Stage 02: Spatial Deconvolution (cell2location)
 
 Maps reference cell signatures onto 16 µm Visium HD bins (`cell2location.models.Cell2location`).
 
@@ -48,7 +64,7 @@ Maps reference cell signatures onto 16 µm Visium HD bins (`cell2location.models
 
 ---
 
-## 4. Stage 03: Motor Neuron Segmentation & Halo Gradients
+## Stage 03: Motor Neuron Segmentation & Halo Gradients
 
 Identifies motor neuron somas using core thresholding, DBSCAN, geodesic expansion, marker gene confirmation, and spatial halo decay.
 
@@ -67,7 +83,7 @@ Identifies motor neuron somas using core thresholding, DBSCAN, geodesic expansio
 
 ---
 
-## 5. Stage 04: Cell Type Abundance Comparisons
+## Stage 04: Cell Type Abundance Comparisons
 
 Defines sub-regions or niches where cell type proportions are aggregated and compared between conditions.
 
@@ -82,7 +98,7 @@ bin_comparisons:
 ```
 
 ### Explanation & Fields
-* **Key (e.g., `is_grey_matter`, `motor_neuron_density`):** Unique internal identifier for the comparison, used in output file names (e.g., `stats_is_grey_matter.csv`).
+* **Comparison Key (e.g., `is_grey_matter`, `motor_neuron_density`):** Unique internal identifier for the comparison, used in output file names (e.g., `stats_is_grey_matter.csv`).
 * **`label` (`string`):** Clean descriptive title displayed on the generated stacked bar charts and strip plots.
 * **`filter` (`string`):** A valid R logical expression evaluated on the spot metadata columns:
   * `"is_grey_matter"`: Evaluates all bins within the anatomically defined grey matter.
@@ -90,7 +106,7 @@ bin_comparisons:
 
 ---
 
-## 6. Stage 05: Spatial Differential Expression (TESSERA)
+## Stage 05: Spatial Differential Expression (TESSERA)
 
 Fits spatial generalized linear mixed models (GLMM) with a Leroux CAR random effect to account for spatial autocorrelation across spots.
 
