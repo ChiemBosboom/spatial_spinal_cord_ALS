@@ -15,27 +15,12 @@ This pipeline integrates single-nucleus reference deconvolution, geometric neuro
 * **Spatial Differential Expression:** Fits spatial GLMMs with Leroux conditional autoregressive (CAR) random effects using `TESSERA` to identify gene alterations along proximity gradients or within discrete niches while removing spatial autocorrelation artifacts.
 
 ### Pilot Study & Scalability
-* **Pilot Data:** This repository includes the `FINAL/` directory containing all output figures generated from a 4-sample pilot cohort (**3 ALS, 1 CTRL**). All results were produced using the default parameters documented below. An in-depth interpretation of these findings is available in `docs/pilot_study_report.md`.
+* **Pilot Data:** This repository includes the `output_pilot` directory containing all output figures generated from a 4-sample pilot cohort (**3 ALS, 1 CTRL**). All results were produced using the default parameters documented below. An interpretation of these findings is available in `output_pilot/pilot_study_report.md`.
 * **Future Cohorts:** The workflow is modularly containerized in Snakemake to allow immediate scaling to larger clinical cohorts simply by updating `config.yaml`.
 
 ---
 
-## Execution & Quickstart
-
-```bash
-# Dry-run
-snakemake -n
-
-# Run locally with conda
-snakemake --use-conda --cores 32
-
-# Submit via SLURM profile
-snakemake --profile slurm
-```
-
----
-
-## Transparency Notice
+## AI Usage
 
 Generative artificial intelligence (**Google Gemini**) was used as an assistant to write, refactor, and optimize the Python, R, and Snakemake scripts in this repository. All statistical models, mathematical formulas, and analytical outputs were manually audited, calibrated, and validated by the authors.
 
@@ -44,17 +29,23 @@ Generative artificial intelligence (**Google Gemini**) was used as an assistant 
 ## Global & Input Settings
 
 ```yaml
-output_dir: "FINAL"
-seurat_rds: "/path/to/SpinalCord_SingleNucleus_v2.rds"
+output_dir: "output_pilot"
+seurat_rds: "/path/to/SpinalCord_SingleNucleus.rds"
 gm_table_path: "/path/to/Barcodes_GreyMatter.csv"
 
 visium_samples:
   UMC-CD-x030-s:
     path: "/path/to/spaceranger/outs/binned_outputs/square_016um/"
     condition: "ALS"
+  UMC-CD-x032-s:
+    path: "/path/to/spaceranger/outs/binned_outputs/square_016um/"
+    condition: "ALS"
   UMC-CD-x033-s:
     path: "/path/to/spaceranger/outs/binned_outputs/square_016um/"
     condition: "CTRL"
+  UMC-CD-x034-s:
+    path: "/path/to/spaceranger/outs/binned_outputs/square_016um/"
+    condition: "ALS"
 ```
 
 ### Explanation & Fields
