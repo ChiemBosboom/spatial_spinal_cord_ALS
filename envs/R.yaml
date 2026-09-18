@@ -1,0 +1,59 @@
+name: R_env
+channels:
+  - conda-forge
+  - bioconda
+
+dependencies:
+  # Base R and build tools (required to compile sparseinv and GitHub packages)
+  - r-base=4.3
+  - r-remotes
+  - r-pkgbuild
+  - make
+  - compilers
+
+  # Visium HD Data Ingestion
+  - r-seurat=5.0
+  - r-hdf5r                # Required by Seurat::Read10X_h5()
+  - r-arrow                # Required to read tissue_positions.parquet
+
+  # Tidyverse & Utilities
+  - r-dplyr
+  - r-tidyr
+  - r-readr
+  - r-ggplot2
+  - r-scales
+  - r-rlang
+  - r-cairo
+
+  # TESSERA Core Imports & Math Dependencies
+  - r-rcpp
+  - r-rcppparallel
+  - r-matrix
+  - r-pracma
+  - r-optimx
+  - r-spatstat.geom
+  - r-gstat
+  - r-tibble
+  - r-reshape2
+  - r-rfast
+  - r-brisc
+  - r-mass
+  - r-spam                 # Required by sparseinv
+  - r-fnn                  # Fast nearest-neighbors used by TESSERA
+
+  # Parallelization (for multi-gene TESSERA fitting)
+  - r-future
+  - r-future.apply
+
+  # Bioconductor Ecosystem
+  - bioconductor-spatialexperiment
+  - bioconductor-summarizedexperiment
+  - bioconductor-singlecellexperiment
+  - bioconductor-matrixgenerics
+  - bioconductor-sparsematrixstats
+  - bioconductor-s4vectors
+  - bioconductor-biocfilecache
+
+  # Statistical and Plotting Tools
+  - r-fdrtool              # For empirical p-value FDR calculation
+  - r-polychrome           # For spatial cluster color palettes

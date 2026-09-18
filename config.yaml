@@ -1,0 +1,122 @@
+# ==============================================================================
+# PIPELINE CONFIGURATION: Visium HD Motor Neuron Spatial Pipeline
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# Output & Global Storage
+# ------------------------------------------------------------------------------
+output_dir: "FINAL"
+
+# ------------------------------------------------------------------------------
+# Input Reference & Annotation Files
+# ------------------------------------------------------------------------------
+# Single-nucleus reference Seurat RDS object
+seurat_rds: "/hpc/hers_en/chiem/spinalcord_singlenucleus/SpinalCord_SingleNucleus_v2.rds"
+
+# Grey matter spot barcode classification table
+gm_table_path: "/hpc/hers_en/chiem/tables/Barcodes_GreyMatterIncludingGaps_hvgs100_k48_res0.2.csv"
+
+# ------------------------------------------------------------------------------
+# Spatial Samples (10x Genomics Visium HD 16um)
+# ------------------------------------------------------------------------------
+visium_samples:
+  UMC-CD-x030-s:
+    path: "/hpc/hers_en/chiem/2025-2973-UMC-CD-x030-x032-s/spaceranger/UMC-CD-x030-s_outs/binned_outputs/square_016um/"
+    condition: "ALS"
+  UMC-CD-x032-s:
+    path: "/hpc/hers_en/chiem/2025-2973-UMC-CD-x030-x032-s/spaceranger/UMC-CD-x032-s_outs/binned_outputs/square_016um/"
+    condition: "ALS"
+  UMC-CD-x033-s:
+    path: "/hpc/hers_en/chiem/2025-2973-UMC-CD-x033-x034-s/spaceranger/UMC-CD-x033-s_outs/binned_outputs/square_016um/"
+    condition: "CTRL"
+  UMC-CD-x034-s:
+    path: "/hpc/hers_en/chiem/2025-2973-UMC-CD-x033-x034-s/spaceranger/UMC-CD-x034-s_outs/binned_outputs/square_016um/"
+    condition: "ALS"
+
+# ==============================================================================
+# STAGE 01: Single-Cell Reference Prep & Model Training
+# ==============================================================================
+
+# Downsampling options
+celltype_column: "motor_neuron_predicted"
+group_column: "disease_family"          # Set to null (without quotes) if not balancing across groups
+sample_column: "orig.ident"
+max_cells_per_celltype: 2000
+
+# Reference gene filtering criteria (Cell2location)
+cell_count_cutoff: 5                    # Minimum cell count for gene expression
+cell_percentage_cutoff2: 0.05           # Gene present in at least % of cells in any cluster
+nonz_mean_cutoff: 1.2                   # Non-zero mean expression cutoff
+
+# Model training parameters
+max_epochs: 700
+batch_size: 16000                       # Scaled for high-memory GPU training
+
+# ==============================================================================
+# STAGE 02: Spatial Deconvolution (Cell2location)
+# ==============================================================================
+
+# Visium HD Spot QC Thresholds (16um bins)
+umi_min: 50
+gene_min: 25
+
+# Spatial model training parameters
+max_epochs_spatial: 500
+batch_size_spatial: 16000
+N_cells_per_location: 1                 # Expected average cells per 16um bin (~1 for 16um)
+detection_alpha: 20                     # Sensitivity hyperparameter
+
+# ==============================================================================
+# STAGE 03: Motor Neuron Segmentation & Spatial Analysis
+# ==============================================================================
+target_col: "Motor Neurons"
+bin_size_um: 16.0
+core_prob_threshold: 0.5                # Minimum probability to be defined as MN core
+min_core_bins: 5                        # Minimum connected bins to seed a neuron
+relaxed_prob_threshold: 0.25            # Probability threshold for soma boundary expansion
+max_expansion_um: 25.0                  # Maximum radius to expand beyond core (in um)
+marker_genes:
+  - "CHAT"
+  - "SLC5A7"
+min_marker_counts: 1                    # Minimum marker gene counts to confirm neuron
+require_grey_matter: true               # Exclude any bins located in white matter
+decay_um: 100.0                         # Distance decay rate for continuous halo density
+
+# ==============================================================================
+# STAGE 04: Cell Type Abundance Comparisons
+# ==============================================================================
+bin_comparisons:
+  is_grey_matter:
+    label: "Grey Matter"
+    filter: "is_grey_matter"
+  motor_neuron_density:
+    label: "MN Microenvironment"
+    filter: "motor_neuron_density > 0.25"
+
+# ==============================================================================
+# STAGE 05: Spatial Differential Expression (TESSERA)
+# ==============================================================================
+
+# Global TESSERA Parameters
+tessera_d_thresh: 23.0
+tessera_min_pct_spots: 0.01
+tessera_min_nonz_mean_counts: 1.1
+tessera_fdr_threshold: 0.05
+
+# TESSERA Statistical Models & Contrasts
+tessera_analyses:
+  mn_gradient:
+    label: "MN Density Gradient"
+    filter: "motor_neuron_density > 0.01 & motor_neuron_density < 1"
+    design_formula: "~ 0 + condition + condition:motor_neuron_density" # condition:nested_id
+    contrasts:
+      slope_ALS_vs_CTRL: "conditionALS:motor_neuron_density - conditionCTRL:motor_neuron_density"
+      slope_ALS: "conditionALS:motor_neuron_density"
+      slope_CTRL: "conditionCTRL:motor_neuron_density"
+
+  mn_microenvironment:
+    label: "MN Microenvironment"
+    filter: "motor_neuron_density > 0.25"
+    design_formula: "~ 0 + condition"   # condition:nested_id
+    contrasts:
+      ALS_vs_CTRL: "conditionALS - conditionCTRL"

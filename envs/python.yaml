@@ -1,0 +1,20 @@
+name: python_env
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python=3.10
+  - pip
+
+  # Core Scientific & Single-Cell Stack
+  - numpy<2.0.0
+  - pandas
+  - scipy
+  - scikit-learn       
+  - pyarrow           
+  - scanpy            
+
+  # Deep Learning & Probabilistic Models
+  - pip:
+      - torch>=2.1.2
+      - cell2location>=0.1.5
