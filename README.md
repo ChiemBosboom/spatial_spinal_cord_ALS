@@ -9,7 +9,7 @@ An end-to-end Snakemake workflow for high-resolution Visium HD spatial transcrip
 * **`scripts/downsample_seurat.R`:** Subsamples single-nucleus reference data across cell types, biological groups, and samples to generate balanced count matrices and metadata for reference signature modeling.
 * **`scripts/train_reference.py`:** Filters low-expression genes, assesses cell-type signature separability, and fits a Negative Binomial regression model (`cell2location`) to infer cluster-specific reference expression profiles on GPU.
 * **`scripts/train_spatial.py`:** Ingests 16 µm Visium HD count matrices and histology coordinates, filters low-quality spots, and maps reference cell-type signatures to spatial slides using the `cell2location` spatial model on GPU.
-* **`scripts/segment_neurons.py`:** Identifies motor neuron cores via DBSCAN on inferred cell abundances, performs geodesic graph expansion, validates candidates using canonical cholinergic markers and grey matter localization, and models a continuous exponential distance-decay density field ($\lambda = 100\ \mu\text{m}$) across grey matter bins.
+* **`scripts/segment_neurons.py`:** Identifies motor neuron cores via DBSCAN on inferred cell abundances, performs geodesic graph expansion, validates candidates using canonical cholinergic markers and grey matter localization, and models a continuous exponential distance-decay density field across grey matter bins.
 * **`scripts/compare_cells.R`:** Quantifies cell type proportions within anatomically and spatially defined tissue compartments (e.g., grey matter, motor neuron microenvironment) and evaluates condition-level shifts via stacked bar charts, sample-level strip plots, and summary statistics.
 * **`scripts/fit_tessera.R`:** Loads Visium HD count data, integrates spot metadata, filters genes and spots, and fits spatial GLMMs (Leroux CAR model) in parallel across genes.
 * **`scripts/compare_genes.R`:** Evaluates user-defined statistical contrasts via Wald tests, computes $P$-values, and generates volcano plots, MA plots, spatial autocorrelation QC checks (Moran's I), gradient expression profiles, and expression heatmaps.
@@ -80,7 +80,7 @@ visium_samples:
 | Output Target | Description |
 | :--- | :--- |
 | `tables/cell_counts_summary.csv` | Summary table of cell counts per cell type and group retained after stratified subsampling. |
-| `reference.h5ad` | Processed reference AnnData containing exported posterior expression signatures (`means_per_cluster_mu_fg`). |
+| `reference.h5ad` | Processed reference AnnData containing exported posterior expression signatures. |
 | `models/reference_model/` | Saved PyTorch/Pyro weights and hyperparameter checkpoints for the trained cell2location regression model. |
 | `plots/filtering_summary.png` | QC diagnostic plot illustrating gene inclusion based on cell count and non-zero mean cutoffs. |
 | `plots/training_history.png` | ELBO loss convergence curve across reference training epochs. |
@@ -106,7 +106,7 @@ visium_samples:
 
 | Output Target | Description |
 | :--- | :--- |
-| `spatial.h5ad` | Combined multi-sample spatial AnnData containing posterior cell abundance estimates (`q05`, `q50`, `q95`). |
+| `spatial.h5ad` | Combined multi-sample spatial AnnData containing posterior cell abundance estimates. |
 | `models/spatial_model/` | Saved PyTorch/Pyro model parameters and weights for the trained spatial cell2location model. |
 | `plots/combined_qc_umi.png` | Histogram of total UMI distributions across all bins with the filtering threshold marked. |
 | `plots/combined_qc_genes.png` | Histogram of detected gene counts across all bins with the filtering threshold marked. |
