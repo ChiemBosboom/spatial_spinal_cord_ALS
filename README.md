@@ -7,11 +7,11 @@ An end-to-end Snakemake workflow for high-resolution Visium HD spatial transcrip
 ## Overview
 
 * **`scripts/downsample_seurat.R`:** Subsamples single-nucleus reference data across cell types, biological groups, and samples to generate balanced count matrices and metadata for reference signature modeling.
-* **`scripts/train_reference.py`:** Filters low-expression genes, assesses cell-type signature separability, and fits a Negative Binomial regression model (`cell2location`) to infer cluster-specific reference expression profiles on GPU.
+* **`scripts/train_reference.py`:** Filters low-expression genes, assesses cell-type signature separability, and fits a Negative Binomial regression model to infer cluster-specific reference expression profiles on GPU with `cell2location`.
 * **`scripts/train_spatial.py`:** Ingests 16 µm Visium HD count matrices and histology coordinates, filters low-quality spots, and maps reference cell-type signatures to spatial slides using the `cell2location` spatial model on GPU.
 * **`scripts/segment_neurons.py`:** Identifies motor neuron cores via DBSCAN on inferred cell abundances, performs geodesic graph expansion, validates candidates using canonical cholinergic markers and grey matter localization, and models a continuous exponential distance-decay density field across grey matter bins.
 * **`scripts/compare_cells.R`:** Quantifies cell type proportions within anatomically and spatially defined tissue compartments (e.g., grey matter, motor neuron microenvironment) and evaluates condition-level shifts via stacked bar charts, sample-level strip plots, and summary statistics.
-* **`scripts/fit_tessera.R`:** Loads Visium HD count data, integrates spot metadata, filters genes and spots, and fits spatial GLMMs (Leroux CAR model) in parallel across genes.
+* **`scripts/fit_tessera.R`:** Loads Visium HD count data, integrates spot metadata, filters genes and spots, and fits spatial GLMMs (Leroux CAR model) in parallel across genes with `TESSERA`.
 * **`scripts/compare_genes.R`:** Evaluates user-defined statistical contrasts via Wald tests, computes $P$-values, and generates volcano plots, MA plots, spatial autocorrelation QC checks (Moran's I), gradient expression profiles, and expression heatmaps.
 
 ### Pilot Study & Scalability
