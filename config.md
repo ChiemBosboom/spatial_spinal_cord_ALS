@@ -1,6 +1,25 @@
 # Pipeline Configuration & Outputs Guide (`config.yaml`)
 
-This guide details all configuration parameters and generated outputs for the Visium HD Motor Neuron Spatial Pipeline, organized to mirror the workflow execution and output stages.
+## Overview & Workflow Intentions
+
+The **Visium HD Motor Neuron Spatial Pipeline** is an automated, end-to-end framework developed for high-resolution (16 µm) spatial transcriptomic investigation of the human spinal cord in Amyotrophic Lateral Sclerosis (ALS). 
+
+The pipeline performs five core functions:
+1. **Single-cell reference curation & signature learning:** Subsamples single-nucleus reference datasets and trains regression models in `cell2location` to establish cell-type-specific transcriptional signatures.
+2. **Spatial deconvolution:** Deconvolves cell type abundances across 16 µm Visium HD bins using Bayesian negative binomial modeling.
+3. **Motor neuron instance segmentation:** Identifies individual motor neuron somas using core thresholding, DBSCAN clustering, geodesic expansion (Dijkstra pathfinding), cholinergic marker gene validation (`CHAT`, `SLC5A7`), and grey matter restriction. It then models an exponential distance-decay density field ($0 \to 1$) to capture the surrounding perineuronal microenvironment.
+4. **Niche compositional testing:** Aggregates and compares sample-level and condition-level cell type proportions within anatomically and mathematically defined spatial compartments.
+5. **Spatial differential expression:** Fits generalized linear mixed models (GLMM) via `TESSERA` using Leroux conditional autoregressive (CAR) random effects to identify genes altered along continuous motor neuron proximity gradients or within defined niches while controlling for spatial autocorrelation.
+
+### Pilot Study & Repository Context
+
+This repository includes the `FINAL/` directory produced by a pilot study of 4 spinal cord sections (**3 ALS, 1 CTRL**). To keep the repository lightweight and accessible, `FINAL/` retains all primary diagnostic, analytical, and quality-control figures generated across the workflow. A detailed biological interpretation and walkthrough of these pilot results is documented in the accompanying pilot report (`docs/pilot_study_report.md`).
+
+All results in the pilot study were generated using the **exact default parameters** presented in this guide and defined in `config.yaml`.
+
+### Scalability for Larger Cohorts
+
+A primary goal of implementing this workflow in **Snakemake** is reproducibility and seamless scalability. Analyzing 16 µm Visium HD grids requires substantial computational orchestration across Python (PyTorch/Pyro on GPUs) and R (Bioconductor/TESSERA across high-memory CPU nodes). By abstracting sample manifests, hardware resource allocation, and parameter matrices into `config.yaml`, this pipeline enables straightforward scaling from this 4-sample pilot to large, multi-donor clinical cohorts without manual code refactoring.
 
 ---
 
