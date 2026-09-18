@@ -6,19 +6,19 @@ An automated Snakemake pipeline for Visium HD spatial transcriptomic profiling o
 
 ## Overview
 
-This pipeline provides an end-to-end workflow integrating reference deconvolution, neuron instance segmentation, and spatial generalized linear mixed modeling across seven dedicated scripts:
+This pipeline integrates reference deconvolution, neuron instance segmentation, and spatial generalized linear mixed modeling across seven scripts:
 
-* **`scripts/downsample_seurat.R`:** Loads the single-nucleus Seurat reference object and performs proportional, stratified subsampling across cell types, disease groups, and biological batches. Balances representation to prevent abundant populations from biasing models and exports Matrix Market count matrices, barcodes, and metadata.
-* **`scripts/train_reference.py`:** Evaluates cell type signature separability, filters mitochondrial and low-expression genes, and fits a Negative Binomial regression model (`cell2location.models.RegressionModel`) to derive reference expression signatures while accounting for technical batch variation.
-* **`scripts/train_spatial.py`:** Ingests 16 µm binned Visium HD outputs, tissue positions, and histology scale factors across slides. Applies spot-level QC thresholds (UMI and gene counts) and trains the spatial mapping model (`cell2location.models.Cell2location`) to infer cell type abundances ($q_{05}$, $q_{50}$, $q_{95}$) and generate spatial abundance maps.
-* **`scripts/segment_neurons.py`:** Identifies motor neuron soma cores via abundance thresholding and DBSCAN clustering, expands soma boundaries via Dijkstra geodesic pathfinding, and validates candidates against canonical cholinergic markers (`CHAT`, `SLC5A7`) and grey matter localization. Computes a continuous exponential distance-decay halo density field ($0 \to 1$) across surrounding tissue.
-* **`scripts/compare_cells.R`:** Filters spots according to anatomical compartments (e.g., grey matter) or spatial density thresholds (e.g., immediate perineuronal niche). Computes sample-level cell type proportions, evaluates condition-level shifts (mean, SD, $\log_2\text{FC}$), and renders stacked bar charts and per-cell-type strip plots.
-* **`scripts/fit_tessera.R`:** Constructs spatial neighborhood adjacency graphs (`TESSERA::prep_data`), performs spot- and gene-level filtering, and fits spatial GLMMs with Leroux conditional autoregressive (CAR) random effects in parallel (`TESSERA::TESSERA_lattice`) to decouple biological signals from spatial autocorrelation.
-* **`scripts/compare_genes.R`:** Computes Wald test statistics for user-configured linear contrasts, calibrates empirical null distributions using `TESSERA` threshold selection or `fdrtool` to control false discovery rates, and generates volcano plots, MA plots, Moran's I residual QC diagnostics, and spatial gradient profile plots or balanced Z-score heatmaps.
+* **`scripts/downsample_seurat.R`:** Subsamples single-nucleus Seurat references across cell types and batches to create balanced count matrices for reference modeling.
+* **`scripts/train_reference.py`:** Filters genes and trains a `cell2location` negative binomial regression model to derive cell type-specific reference signatures.
+* **`scripts/train_spatial.py`:** Filters 16 µm Visium HD bins and fits spatial `cell2location` models to infer cell type abundance across tissue slides.
+* **`scripts/segment_neurons.py`:** Clusters motor neuron somas via DBSCAN, expands boundaries along geodesic paths, validates with cholinergic markers (`CHAT`, `SLC5A7`), and models an exponential distance-decay density field ($0 \to 1$).
+* **`scripts/compare_cells.R`:** Quantifies cell type proportions within defined compartments or perineuronal niches and evaluates condition-level shifts.
+* **`scripts/fit_tessera.R`:** Builds spatial adjacency graphs and fits parallel spatial GLMMs with Leroux CAR random effects via `TESSERA` to remove spatial autocorrelation artifacts.
+* **`scripts/compare_genes.R`:** Conducts Wald tests across linear contrasts, calibrates empirical null distributions, and generates volcano, MA, Moran's I QC, and gradient profile/heatmap plots.
 
 ### Pilot Study & Scalability
-* **Pilot Data & Technical Limitations:** This repository includes the `output_pilot` directory containing all figures generated from a 4-sample pilot cohort (**3 ALS, 1 CTRL**). In this pilot run, most gene expression analyses between ALS and CTRL failed to identify statistically significant differences. Because the pilot study included only a single control sample, nested sample terms (`condition:nested_id`) could not be included in the design formula to estimate inter-donor baseline variance. Consequently, `TESSERA` could not separate donor-to-donor biological variation across the multiple ALS cases from spatial condition effects, which distorted the empirical null background distribution and caused all ALS-related differential analyses to yield zero significant results—while the single-sample CTRL analysis ran without issue.
-* **Future Cohorts:** In future studies with additional control samples, introducing nested donor terms (`condition:nested_id`) into `design_formula` will properly control for patient-to-patient variance and enable robust, well-calibrated differential testing. The workflow is modularly containerized in Snakemake to allow immediate scaling to larger clinical cohorts simply by updating `config.yaml`.
+* **Pilot Data & Technical Limitations:** The `output_pilot` directory contains results from a 4-sample pilot cohort (**3 ALS, 1 CTRL**) run with `config.yaml` using the default parameters documented below. Most ALS-related differential expression tests yielded zero significant genes. Because the pilot contained only a single CTRL sample, nested donor terms (`condition:nested_id`) could not be included in the design formula to estimate inter-individual baseline variance. Consequently, `TESSERA` could not account for biological variation across ALS donors, which distorted the background null distribution—whereas the single-sample CTRL analysis ran without issue.
+* **Future Cohorts:** In larger cohorts with multiple controls, adding `condition:nested_id` will properly control for patient-to-patient variance and enable reliable differential testing. The Snakemake pipeline readily scales to future cohorts simply by updating `config.yaml`.
 
 ---
 
@@ -61,7 +61,7 @@ visium_samples:
 
 ---
 
-## Stage 01: Single-Cell Reference Prep & Model Training
+## 01: Single-Cell Reference Prep & Model Training
 
 Prepares reference signatures and fits the negative binomial regression model (`cell2location.models.RegressionModel`).
 
@@ -79,21 +79,21 @@ Prepares reference signatures and fits the negative binomial regression model (`
 | `max_epochs` | `integer` | `700` | Total training epochs for the reference regression model. |
 | `batch_size` | `integer` | `16000` | Mini-batch size for GPU training. Reduce to `4096` or `2048` if training on smaller GPUs (<40GB VRAM). |
 
-### Stage Outputs (`01_reference/`)
+### Outputs (`01_reference/`)
 
-| Output Target | Format | Description |
-| :--- | :--- | :--- |
-| `tables/cell_counts_summary.csv` | CSV Table | Cell counts per cell type and disease family retained after stratified subsampling. |
-| `reference.h5ad` | AnnData H5AD | Downsampled reference AnnData containing exported posterior expression signatures. |
-| `models/reference_model/` | Directory | Saved PyTorch/Pyro weights and parameters for the trained cell2location regression model. |
-| `plots/filtering_summary.png` | PNG Plot | Diagnostic plot showing gene inclusion based on cell count, non-zero mean, and cluster percentage. |
-| `plots/training_history.png` | PNG Plot | ELBO loss convergence curve across reference training epochs. |
-| `plots/training_qc_reconstruction.png` | PNG Plot | QC scatter plot evaluating observed vs. model-reconstructed count distributions. |
-| `plots/training_qc_expression.png` | PNG Plot | QC scatter plot comparing inferred cluster expression signatures against empirical averages. |
+| Output Target | Description |
+| :--- | :--- |
+| `tables/cell_counts_summary.csv` | Cell counts per cell type and disease family retained after stratified subsampling. |
+| `reference.h5ad` | Downsampled reference AnnData containing exported posterior expression signatures. |
+| `models/reference_model/` | Saved PyTorch/Pyro weights and parameters for the trained cell2location regression model. |
+| `plots/filtering_summary.png` | Diagnostic plot showing gene inclusion based on cell count, non-zero mean, and cluster percentage. |
+| `plots/training_history.png` | ELBO loss convergence curve across reference training epochs. |
+| `plots/training_qc_reconstruction.png` | QC scatter plot evaluating observed vs. model-reconstructed count distributions. |
+| `plots/training_qc_expression.png` | QC scatter plot comparing inferred cluster expression signatures against empirical averages. |
 
 ---
 
-## Stage 02: Spatial Deconvolution (cell2location)
+## 02: Spatial Deconvolution (cell2location)
 
 Maps reference cell signatures onto 16 µm Visium HD bins (`cell2location.models.Cell2location`).
 
@@ -108,23 +108,23 @@ Maps reference cell signatures onto 16 µm Visium HD bins (`cell2location.models
 | `N_cells_per_location` | `integer` | `1` | Prior mean for the number of cells expected per bin. For 16 µm Visium HD bins, ~1 cell per bin is expected. |
 | `detection_alpha` | `float` | `20` | Regularization hyperparameter for spot-to-spot technical sensitivity differences. |
 
-### Stage Outputs (`02_deconvolution/`)
+### Outputs (`02_deconvolution/`)
 
-| Output Target | Format | Description |
-| :--- | :--- | :--- |
-| `spatial.h5ad` | AnnData H5AD | Combined spatial AnnData containing cell abundance estimates (q05, q50, q95) across all slides. |
-| `models/spatial_model/` | Directory | Saved model weights and parameters for the trained spatial cell2location model. |
-| `plots/combined_qc_umi.png` | PNG Plot | Histogram of log10 total UMIs across all bins with the cutoff threshold marked. |
-| `plots/combined_qc_genes.png` | PNG Plot | Histogram of log10 detected genes across all bins with the cutoff threshold marked. |
-| `plots/spatial_training_history.png` | PNG Plot | ELBO loss convergence curve during spatial model training. |
-| `plots/spatial_qc_reconstruction.png` | PNG Plot | QC plot evaluating spatial model reconstruction accuracy. |
-| `tables/cell_abundance_q05.csv` | CSV Table | 5th-percentile cell abundance estimates per bin for all reference cell types. |
-| `tables/spatial_summary_stats.csv` | CSV Table | Summary distribution statistics (mean, SD, median, purity) across spatial bins. |
-| `plots/celltypes/*_spatial_abundance.png` | PNG Directory | Multi-slide spatial abundance overlay maps generated individually for each cell type. |
+| Output Target | Description |
+| :--- | :--- |
+| `spatial.h5ad` | Combined spatial AnnData containing cell abundance estimates (q05, q50, q95) across all slides. |
+| `models/spatial_model/` | Saved model weights and parameters for the trained spatial cell2location model. |
+| `plots/combined_qc_umi.png` | Histogram of log10 total UMIs across all bins with the cutoff threshold marked. |
+| `plots/combined_qc_genes.png` | Histogram of log10 detected genes across all bins with the cutoff threshold marked. |
+| `plots/spatial_training_history.png` | ELBO loss convergence curve during spatial model training. |
+| `plots/spatial_qc_reconstruction.png` | QC plot evaluating spatial model reconstruction accuracy. |
+| `tables/cell_abundance_q05.csv` | 5th-percentile cell abundance estimates per bin for all reference cell types. |
+| `tables/spatial_summary_stats.csv` | Summary distribution statistics (mean, SD, median, purity) across spatial bins. |
+| `plots/celltypes/*_spatial_abundance.png` | Multi-slide spatial abundance overlay maps generated individually for each cell type. |
 
 ---
 
-## Stage 03: Motor Neuron Segmentation & Halo Gradients
+## 03: Motor Neuron Segmentation & Halo Gradients
 
 Identifies motor neuron somas using core thresholding, DBSCAN, geodesic expansion, marker gene confirmation, and spatial halo decay.
 
@@ -143,17 +143,17 @@ Identifies motor neuron somas using core thresholding, DBSCAN, geodesic expansio
 | `require_grey_matter` | `boolean` | `true` | When `true`, discards candidate neurons falling outside grey matter to eliminate edge artifacts. |
 | `decay_um` | `float` | `100.0` | Distance decay rate ($\lambda$) used in the exponential halo formula: $\text{density} = \exp(-\text{dist} / \lambda)$. |
 
-### Stage Outputs (`03_segmentation/`)
+### Outputs (`03_segmentation/`)
 
-| Output Target | Format | Description |
-| :--- | :--- | :--- |
-| `tables/motor_neuron_metadata_per_spot.csv` | CSV Table | Spot-level metadata with segmentation flags (`is_neuron_core`, `is_neuron_expanded`, `neuron_id`, `motor_neuron_density`, `is_grey_matter`). |
-| `plots/motor_neurons_{sample}_bins.png` | PNG Plot | Histology image showing all verified segmented motor neuron soma bins per sample. |
-| `plots/motor_neurons_{sample}_density.png` | PNG Plot | Continuous spatial gradient map illustrating the exponential decay density field ($0 \to 1$) per sample. |
+| Output Target | Description |
+| :--- | :--- |
+| `tables/motor_neuron_metadata_per_spot.csv` | Spot-level metadata with segmentation flags (`is_neuron_core`, `is_neuron_expanded`, `neuron_id`, `motor_neuron_density`, `is_grey_matter`). |
+| `plots/motor_neurons_{sample}_bins.png` | Histology image showing all verified segmented motor neuron soma bins per sample. |
+| `plots/motor_neurons_{sample}_density.png` | Continuous spatial gradient map illustrating the exponential decay density field ($0 \to 1$) per sample. |
 
 ---
 
-## Stage 04: Cell Type Abundance Comparisons
+## 04: Cell Type Abundance Comparisons
 
 Defines sub-regions or niches where cell type proportions are aggregated and compared between conditions.
 
@@ -174,18 +174,18 @@ bin_comparisons:
   * `"is_grey_matter"`: Evaluates all bins within the anatomically defined grey matter.
   * `"motor_neuron_density > 0.25"`: Restricts analysis to the immediate perineuronal microenvironment (~140 µm radius around motor neurons).
 
-### Stage Outputs (`04_cell_comparison/`)
+### Outputs (`04_cell_comparison/`)
 
-| Output Target | Format | Description |
-| :--- | :--- | :--- |
-| `plots/cell_abundance_stacked_barchart.png` | PNG Plot | Stacked bar chart showing condition-averaged cell type proportions across all comparisons. |
-| `plots/abundance_stripplots/abundance_*.png` | PNG Directory | Sample-level strip plots with condition mean overlays generated for each individual cell type. |
-| `tables/stats_{comparison}.csv` | CSV Table | Condition-level summary metrics (mean proportion, SD, Log2FC) for a specific comparison. |
-| `tables/stats_all_comparisons.csv` | CSV Table | Master summary table collating cell type abundance statistics across all configured comparisons. |
+| Output Target | Description |
+| :--- | :--- |
+| `plots/cell_abundance_stacked_barchart.png` | Stacked bar chart showing condition-averaged cell type proportions across all comparisons. |
+| `plots/abundance_stripplots/abundance_*.png` | Sample-level strip plots with condition mean overlays generated for each individual cell type. |
+| `tables/stats_{comparison}.csv` | Condition-level summary metrics (mean proportion, SD, Log2FC) for a specific comparison. |
+| `tables/stats_all_comparisons.csv` | Master summary table collating cell type abundance statistics across all configured comparisons. |
 
 ---
 
-## Stage 05: Spatial Differential Expression (TESSERA)
+## 05: Spatial Differential Expression (TESSERA)
 
 Fits spatial generalized linear mixed models (GLMM) with a Leroux CAR random effect to account for spatial autocorrelation across spots.
 
@@ -234,17 +234,17 @@ tessera_analyses:
   * `slope_ALS` / `slope_CTRL`: Tests if individual slopes are significantly non-zero.
   * `ALS_vs_CTRL`: Tests standard differential expression between ALS and CTRL within the filtered niche.
 
-### Stage Outputs (`05_gene_comparison/{analysis}/`)
+### Outputs (`05_gene_comparison/{analysis}/`)
 
-| Output Target | Format | Description |
-| :--- | :--- | :--- |
-| `objects/tessera_data.rds` | RDS Object | TESSERA data container containing spatial adjacency structures, design matrices, and count lists. |
-| `objects/tessera_fits.rds` | RDS Object | List of fitted TESSERA spatial GLMM models for all tested genes. |
-| `tables/performance_summary.csv` | CSV Table | Quality metrics (Moran's I autocorrelation of raw counts vs. fitted residuals) per gene and sample. |
-| `tables/de_results_all.csv` | CSV Table | Full Wald test statistics, estimates, standard errors, empirical null parameters, and FDR values for all genes. |
-| `tables/de_results_significant.csv` | CSV Table | Filtered table of statistically significant genes passing the FDR threshold (`padj < tessera_fdr_threshold`). |
-| `plots/volcano/volcano_{contrast}.png` | PNG Plot | Volcano plots displaying Log2FC vs. $-log_{10}(\text{adj.\ } P)$ with the top significant genes labeled. |
-| `plots/ma/ma_{contrast}.png` | PNG Plot | MA plots showing average expression vs. Log2FC for each evaluated contrast. |
-| `plots/moran_qc.png` | PNG Plot | Boxplot of Moran's I before and after model fitting to confirm removal of spatial autocorrelation. |
-| `plots/gradient_profiles/gradient_profile_{contrast}.png` | PNG Plot | *(Gradient analyses)* 10-bin mean $\pm$ SE normalized expression curves across the density gradient for top hits. |
-| `plots/heatmap/heatmap_{contrast}.png` | PNG Plot | *(Niche analyses)* Sample-by-compartment balanced Z-score expression heatmap for top significant genes. |
+| Output Target | Description |
+| :--- | :--- |
+| `objects/tessera_data.rds` | TESSERA data container containing spatial adjacency structures, design matrices, and count lists. |
+| `objects/tessera_fits.rds` | List of fitted TESSERA spatial GLMM models for all tested genes. |
+| `tables/performance_summary.csv` | Quality metrics (Moran's I autocorrelation of raw counts vs. fitted residuals) per gene and sample. |
+| `tables/de_results_all.csv` | Full Wald test statistics, estimates, standard errors, empirical null parameters, and FDR values for all genes. |
+| `tables/de_results_significant.csv` | Filtered table of statistically significant genes passing the FDR threshold (`padj < tessera_fdr_threshold`). |
+| `plots/volcano/volcano_{contrast}.png` | Volcano plots displaying Log2FC vs. $-log_{10}(\text{adj.\ } P)$ with the top significant genes labeled. |
+| `plots/ma/ma_{contrast}.png` | MA plots showing average expression vs. Log2FC for each evaluated contrast. |
+| `plots/moran_qc.png` | Boxplot of Moran's I before and after model fitting to confirm removal of spatial autocorrelation. |
+| `plots/gradient_profiles/gradient_profile_{contrast}.png` | *(Gradient analyses)* 10-bin mean $\pm$ SE normalized expression curves across the density gradient for top hits. |
+| `plots/heatmap/heatmap_{contrast}.png` | *(Niche analyses)* Sample-by-compartment balanced Z-score expression heatmap for top significant genes. |
