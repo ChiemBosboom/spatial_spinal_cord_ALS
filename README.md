@@ -1,16 +1,16 @@
 # Visium HD Motor Neuron Spatial Pipeline
 
-An automated Snakemake pipeline for 16 µm Visium HD spatial transcriptomic profiling of the human spinal cord in Amyotrophic Lateral Sclerosis (ALS).
+An automated Snakemake pipeline for Visium HD spatial transcriptomic profiling of the human spinal cord in Amyotrophic Lateral Sclerosis (ALS).
 
 ---
 
 ## Overview
 
-This pipeline integrates single-nucleus reference deconvolution, geometric neuron instance segmentation, and spatial autoregressive modeling across five core stages:
+This pipeline integrates deconvolution, neuron instance segmentation, and spatial modeling across five core stages:
 
 * **Reference Signature Learning:** Subsamples single-nucleus references and trains `cell2location` regression models.
 * **Spatial Deconvolution:** Infers cell type abundances across 16 µm Visium HD bins with `cell2location`.
-* **Motor Neuron Segmentation & Density Gradients:** Identifies motor neuron somas using core thresholding, DBSCAN clustering, Dijkstra geodesic expansion, cholinergic marker validation (`CHAT`, `SLC5A7`), and grey matter restriction. Models an exponential distance-decay density field ($0 \to 1$) around verified somas.
+* **Motor Neuron Segmentation & Density Gradients:** Identifies bins of motor neurons using `cell2location` abundance estimates, cholinergic marker validation (`CHAT`, `SLC5A7`), and grey matter metadata. Models an exponential distance-decay density field ($0 \to 1$) around verified neurons.
 * **Niche Compositional Testing:** Quantifies and compares cell type abundance across anatomical and spatial compartments.
 * **Spatial Differential Expression:** Fits spatial GLMMs with Leroux conditional autoregressive (CAR) random effects using `TESSERA` to identify gene alterations along proximity gradients or within discrete niches while removing spatial autocorrelation artifacts.
 
@@ -22,7 +22,7 @@ This pipeline integrates single-nucleus reference deconvolution, geometric neuro
 
 ## AI Usage
 
-Generative artificial intelligence (**Google Gemini**) was used as an assistant to write, refactor, and optimize the Python, R, and Snakemake scripts in this repository. All statistical models, mathematical formulas, and analytical outputs were manually audited, calibrated, and validated by the authors.
+Generative artificial intelligence (**Google Gemini**) was used as an assistant to write, refactor, and optimize the Python, R, and Snakemake scripts in this repository. All outputs were manually validated.
 
 ---
 
@@ -49,7 +49,7 @@ visium_samples:
 ```
 
 ### Explanation & Fields
-* **`output_dir` (`string`):** Base directory where all rule outputs, intermediate files, models, tables, and figures are stored (e.g., `"FINAL"`).
+* **`output_dir` (`string`):** Base directory where all rule outputs, intermediate files, models, tables, and figures are stored (e.g., `"output_pilot"`).
 * **`seurat_rds` (`string`):** Path to the single-nucleus or single-cell Seurat RDS object containing raw UMI counts and cell type labels.
 * **`gm_table_path` (`string`):** Path to a CSV table containing spot-level anatomical classifications. Must contain `sample_id` and `Barcode` columns mapping spots located within the spinal cord grey matter.
 * **`visium_samples` (`map`):** Dictionary specifying each Visium HD sample to process:
