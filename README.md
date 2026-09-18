@@ -6,17 +6,19 @@ An automated Snakemake pipeline for Visium HD spatial transcriptomic profiling o
 
 ## Overview
 
-This pipeline integrates deconvolution, neuron instance segmentation, and spatial modeling across five core stages:
+This pipeline provides an end-to-end workflow integrating reference deconvolution, neuron instance segmentation, and spatial generalized linear mixed modeling across seven dedicated scripts:
 
-* **Reference Signature Learning:** Subsamples single-nucleus references and trains `cell2location` regression models.
-* **Spatial Deconvolution:** Infers cell type abundances across 16 µm Visium HD bins with `cell2location`.
-* **Motor Neuron Segmentation & Density Gradients:** Identifies bins of motor neurons using `cell2location` abundance estimates, cholinergic marker validation (`CHAT`, `SLC5A7`), and grey matter metadata. Models an exponential distance-decay density field ($0 \to 1$) around verified neurons.
-* **Niche Compositional Testing:** Quantifies and compares cell type abundance across anatomical and spatial compartments.
-* **Spatial Differential Expression:** Fits spatial GLMMs with Leroux conditional autoregressive (CAR) random effects using `TESSERA` to identify gene alterations along proximity gradients or within discrete niches while removing spatial autocorrelation artifacts.
+* **`scripts/downsample_seurat.R`:** Loads the single-nucleus Seurat reference object and performs proportional, stratified subsampling across cell types, disease groups, and biological batches. Balances representation to prevent abundant populations from biasing models and exports Matrix Market count matrices, barcodes, and metadata.
+* **`scripts/train_reference.py`:** Evaluates cell type signature separability, filters mitochondrial and low-expression genes, and fits a Negative Binomial regression model (`cell2location.models.RegressionModel`) to derive reference expression signatures while accounting for technical batch variation.
+* **`scripts/train_spatial.py`:** Ingests 16 µm binned Visium HD outputs, tissue positions, and histology scale factors across slides. Applies spot-level QC thresholds (UMI and gene counts) and trains the spatial mapping model (`cell2location.models.Cell2location`) to infer cell type abundances ($q_{05}$, $q_{50}$, $q_{95}$) and generate spatial abundance maps.
+* **`scripts/segment_neurons.py`:** Identifies motor neuron soma cores via abundance thresholding and DBSCAN clustering, expands soma boundaries via Dijkstra geodesic pathfinding, and validates candidates against canonical cholinergic markers (`CHAT`, `SLC5A7`) and grey matter localization. Computes a continuous exponential distance-decay halo density field ($0 \to 1$) across surrounding tissue.
+* **`scripts/compare_cells.R`:** Filters spots according to anatomical compartments (e.g., grey matter) or spatial density thresholds (e.g., immediate perineuronal niche). Computes sample-level cell type proportions, evaluates condition-level shifts (mean, SD, $\log_2\text{FC}$), and renders stacked bar charts and per-cell-type strip plots.
+* **`scripts/fit_tessera.R`:** Constructs spatial neighborhood adjacency graphs (`TESSERA::prep_data`), performs spot- and gene-level filtering, and fits spatial GLMMs with Leroux conditional autoregressive (CAR) random effects in parallel (`TESSERA::TESSERA_lattice`) to decouple biological signals from spatial autocorrelation.
+* **`scripts/compare_genes.R`:** Computes Wald test statistics for user-configured linear contrasts, calibrates empirical null distributions using `TESSERA` threshold selection or `fdrtool` to control false discovery rates, and generates volcano plots, MA plots, Moran's I residual QC diagnostics, and spatial gradient profile plots or balanced Z-score heatmaps.
 
 ### Pilot Study & Scalability
-* **Pilot Data:** This repository includes the `output_pilot` directory containing all output figures generated from a 4-sample pilot cohort (**3 ALS, 1 CTRL**). All results were produced using the default parameters documented below. 
-* **Future Cohorts:** The workflow is modularly containerized in Snakemake to allow immediate scaling to larger clinical cohorts simply by updating `config.yaml`.
+* **Pilot Data & Technical Limitations:** This repository includes the `output_pilot` directory containing all figures generated from a 4-sample pilot cohort (**3 ALS, 1 CTRL**). In this pilot run, most gene expression analyses between ALS and CTRL failed to identify statistically significant differences. Because the pilot study included only a single control sample, nested sample terms (`condition:nested_id`) could not be included in the design formula to estimate inter-donor baseline variance. Consequently, `TESSERA` could not separate donor-to-donor biological variation across the multiple ALS cases from spatial condition effects, which distorted the empirical null background distribution and caused all ALS-related differential analyses to yield zero significant results—while the single-sample CTRL analysis ran without issue.
+* **Future Cohorts:** In future studies with additional control samples, introducing nested donor terms (`condition:nested_id`) into `design_formula` will properly control for patient-to-patient variance and enable robust, well-calibrated differential testing. The workflow is modularly containerized in Snakemake to allow immediate scaling to larger clinical cohorts simply by updating `config.yaml`.
 
 ---
 
