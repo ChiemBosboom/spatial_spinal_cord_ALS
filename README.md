@@ -15,7 +15,7 @@ This pipeline integrates deconvolution, neuron instance segmentation, and spatia
 * **Spatial Differential Expression:** Fits spatial GLMMs with Leroux conditional autoregressive (CAR) random effects using `TESSERA` to identify gene alterations along proximity gradients or within discrete niches while removing spatial autocorrelation artifacts.
 
 ### Pilot Study & Scalability
-* **Pilot Data:** This repository includes the `output_pilot` directory containing all output figures generated from a 4-sample pilot cohort (**3 ALS, 1 CTRL**). All results were produced using the default parameters documented below. An interpretation of these findings is available in `output_pilot/pilot_study_report.md`.
+* **Pilot Data:** This repository includes the `output_pilot` directory containing all output figures generated from a 4-sample pilot cohort (**3 ALS, 1 CTRL**). All results were produced using the default parameters documented below. 
 * **Future Cohorts:** The workflow is modularly containerized in Snakemake to allow immediate scaling to larger clinical cohorts simply by updating `config.yaml`.
 
 ---
